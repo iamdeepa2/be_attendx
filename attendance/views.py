@@ -14,9 +14,10 @@ import json
 
 from django.core.exceptions import ObjectDoesNotExist
 from django.db import IntegrityError
-from django.db.models import Count, Q
+from django.db.models import Count, Exists, F, OuterRef, Q
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
+from django.utils.dateparse import parse_date
 
 from .models import (
     Admin,
@@ -93,6 +94,7 @@ def attendance_row(record):
         "id": record.id,
         "teacher_id": record.teacher_id,
         "student_id": record.student_id,
+        "student_name": record.student.name,
         "subject_id": record.subject_id,
         "subject_name": record.subject.name,
         "teacher_name": record.teacher.name if record.teacher_id else None,
@@ -568,16 +570,46 @@ def assign_subject(classroom, teacher, subject):
     return ok(f"{subject.name} assigned to {teacher.name} in {classroom.name}.")
 
 
+def active_teaching(teacher_id):
+    """Assignments are valid only while both memberships still exist."""
+    return TeachingAssignment.objects.filter(
+        teacher_id=teacher_id,
+        classroom__teachers__id=teacher_id,
+        subject__classrooms__id=F("classroom_id"),
+    )
+
+
 @csrf_exempt
 def teacher_classrooms(request, teacher_id):
-    """Classrooms this teacher is assigned to, for the teacher's own picker."""
+    if request.method != "GET":
+        return method_not_allowed()
     teacher = get_or_none(Teacher, teacher_id)
     if teacher is None:
         return not_found("Teacher not found.")
+    rooms = Classroom.objects.filter(
+        id__in=active_teaching(teacher_id).values("classroom_id")
+    ).order_by("name")
     return ok(
         teacher_id=teacher.id,
         teacher_name=teacher.name,
-        classrooms=[name_row(c) for c in teacher.classrooms.order_by("name")],
+        classrooms=[name_row(c) for c in rooms],
+    )
+
+
+@csrf_exempt
+def teacher_classroom(request, teacher_id, classroom_id):
+    if request.method != "GET":
+        return method_not_allowed()
+    assignments = active_teaching(teacher_id).filter(classroom_id=classroom_id)
+    if not assignments.exists():
+        return fail("No teaching assignment for this classroom.", 403)
+    classroom = Classroom.objects.get(id=classroom_id)
+    subjects = Subject.objects.filter(id__in=assignments.values("subject_id")).order_by("name")
+    return ok(
+        teacher_id=teacher_id,
+        classroom_id=classroom.id,
+        subjects=[name_row(s) for s in subjects],
+        students=[person_row(s) for s in classroom.students.order_by("name")],
     )
 
 
@@ -612,7 +644,7 @@ def classroom_scoped_attendance(student, classrooms):
             Q(classroom__in=classrooms)
             | Q(classroom__isnull=True, subject__classrooms__in=classrooms)
         )
-        .select_related("subject", "teacher")
+        .select_related("subject", "teacher", "student")
         .distinct()
     )
 
@@ -681,15 +713,38 @@ def student_dashboard(request, student_id):
 def records(request):
     if request.method == "POST":
         data = read_body(request)
+        if not isinstance(data, dict):
+            return fail("Provide an attendance record.")
+        teacher_id = read_id(data, "teacher_id")
+        classroom_id = read_id(data, "classroom_id")
+        subject_id = read_id(data, "subject_id")
+        student_id = read_id(data, "student_id")
+        if None in (teacher_id, classroom_id, subject_id, student_id):
+            return fail("Teacher, classroom, subject and student are required.")
+        if not active_teaching(teacher_id).filter(
+            classroom_id=classroom_id, subject_id=subject_id
+        ).exists():
+            return fail("You are not assigned to teach this subject in this classroom.", 403)
+        if not Student.objects.filter(id=student_id, classrooms__id=classroom_id).exists():
+            return fail("Student is not enrolled in the selected classroom.", 403)
+        try:
+            date = parse_date(data.get("date", ""))
+        except (TypeError, ValueError):
+            date = None
+        if date is None or not isinstance(data.get("present"), bool):
+            return fail("Provide a valid date and a boolean attendance status.")
         Attendance.objects.create(
-            teacher_id=data["teacher_id"],
-            student_id=data["student_id"],
-            subject_id=data["subject_id"],
-            classroom_id=data.get("classroom_id") or None,
-            date=data["date"],
+            teacher_id=teacher_id,
+            student_id=student_id,
+            subject_id=subject_id,
+            classroom_id=classroom_id,
+            date=date,
             present=data["present"],
         )
         return ok()
+
+    if request.method != "GET":
+        return method_not_allowed()
 
     teacher = request.GET.get("teacher_id")
     student = request.GET.get("student_id")
@@ -704,10 +759,21 @@ def records(request):
             student_row, student_classrooms(student_row) if student_row else []
         )
     else:
-        rows = Attendance.objects.select_related("subject", "teacher")
+        rows = Attendance.objects.select_related("subject", "teacher", "student")
 
     if teacher:
-        rows = rows.filter(teacher_id=teacher)
+        teacher_row = get_or_none(Teacher, teacher)
+        if teacher_row is None:
+            return not_found("Teacher not found.")
+        assignments = active_teaching(teacher_row.id).filter(
+            classroom_id=OuterRef("classroom_id"), subject_id=OuterRef("subject_id")
+        )
+        enrolled = Student.objects.filter(
+            id=OuterRef("student_id"), classrooms__id=OuterRef("classroom_id")
+        )
+        rows = rows.filter(teacher_id=teacher_row.id).filter(
+            Exists(assignments), Exists(enrolled)
+        )
     if student:
         rows = rows.filter(student_id=student)
     if classroom:

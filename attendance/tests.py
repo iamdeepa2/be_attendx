@@ -408,6 +408,7 @@ class ClassroomTeachingTests(TestCase):
         student = Student.objects.create(
             name="Deepa Pandey", email="deepa@gmail.com", password="password123"
         )
+        self.bca2.students.add(student)
         self.post("/attendance/", {
             "teacher_id": bishnu,
             "student_id": student.id,
@@ -440,6 +441,7 @@ class ClassroomTeachingTests(TestCase):
             name="Deepa Pandey", email="deepa@gmail.com", password="password123"
         )
         for classroom, subject in ((self.bca2, self.web), (self.bca4, self.scripting)):
+            classroom.students.add(student)
             self.post("/attendance/", {
                 "teacher_id": bishnu,
                 "student_id": student.id,
@@ -464,6 +466,7 @@ class ClassroomTeachingTests(TestCase):
         student = Student.objects.create(
             name="Deepa Pandey", email="deepa@gmail.com", password="password123"
         )
+        self.bca2.students.add(student)
         self.post("/attendance/", {
             "teacher_id": bishnu,
             "student_id": student.id,
@@ -695,11 +698,11 @@ class StudentDashboardScopeTests(TestCase):
         )
         self.assertEqual([r["id"] for r in explicit], [self.rows[self.rachana.id][1].id])
 
-        # The teacher dashboard's own view is untouched.
+        # Teacher reads require both a valid teaching assignment and enrollment.
         by_teacher = json.loads(
             self.client.get(f"/attendance/?teacher_id={self.bishnu.id}").content
         )
-        self.assertEqual(len(by_teacher), 6)
+        self.assertEqual([r["id"] for r in by_teacher], [self.rows[self.rachana.id][0].id])
 
     def test_no_duplicate_teachers_or_subjects(self):
         for student in (self.rachana, self.deepa):
