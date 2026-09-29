@@ -1,8 +1,27 @@
-
 import os
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+
+def read_env_file():
+    """Load KEY=VALUE lines from a local .env so no secret is committed.
+
+    Real environment variables always win, which is what hosting uses.
+    """
+    env_file = BASE_DIR / ".env"
+    if not env_file.exists():
+        return
+    for line in env_file.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        os.environ.setdefault(key.strip(), value.strip().strip("'\""))
+
+
+read_env_file()
+
 
 SECRET_KEY = os.environ.get(
     "DJANGO_SECRET_KEY", "django-insecure-change-this-later"
@@ -24,7 +43,6 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
 
     "corsheaders",
-    "rest_framework",
     "attendance",
 ]
 
@@ -60,14 +78,25 @@ WSGI_APPLICATION = "attendx.wsgi.application"
 
 DATABASES = {
     "default": {
-        "ENGINE": "django.db.backends.mysql",
+        "ENGINE": "mysql.connector.django",
         "NAME": os.environ.get("DB_NAME", "attendx_db"),
         "USER": os.environ.get("DB_USER", "root"),
-        "PASSWORD": os.environ.get("DB_PASSWORD", "@Ggmufamily248"),
+        "PASSWORD": os.environ.get("DB_PASSWORD", ""),
         "HOST": os.environ.get("DB_HOST", "127.0.0.1"),
         "PORT": os.environ.get("DB_PORT", "3306"),
     }
 }
+
+if os.environ.get("DB_SSL_MODE"):
+    DATABASES["default"]["OPTIONS"] = {
+        "use_pure": True,
+        "ssl_disabled": False,
+        "ssl_verify_cert": bool(os.environ.get("DB_SSL_CA")),
+        "ssl_verify_identity": bool(os.environ.get("DB_SSL_CA")),
+        "connection_timeout": 15,
+    }
+    if os.environ.get("DB_SSL_CA"):
+        DATABASES["default"]["OPTIONS"]["ssl_ca"] = os.environ["DB_SSL_CA"]
 
 AUTH_PASSWORD_VALIDATORS = []
 
@@ -80,11 +109,12 @@ USE_I18N = True
 USE_TZ = True
 
 STATIC_URL = "static/"
+STATIC_ROOT = BASE_DIR / "staticfiles"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 CORS_ALLOWED_ORIGINS = os.environ.get(
     "CORS_ALLOWED_ORIGINS",
     "http://localhost:5173,http://127.0.0.1:5173,"
-    "https://attendx-frontend-fped.onrender.com",
+    "https://attendxdemo.vercel.app",
 ).split(",")
