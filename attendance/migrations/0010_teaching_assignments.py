@@ -1,11 +1,3 @@
-# Teacher <-> subject is now classroom specific: TeachingAssignment holds
-# (classroom, teacher, subject). The old global Teacher.subjects link is
-# removed after its rows are converted.
-#
-# Conversion rule: a legacy (teacher, subject) pair becomes one assignment
-# only when exactly one classroom contains both the teacher and the subject.
-# Anything else would be a guess, so it is left out and reported instead.
-
 from django.db import migrations, models
 import django.db.models.deletion
 

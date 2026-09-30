@@ -33,11 +33,6 @@ class Classroom(models.Model):
 
 
 class TeachingAssignment(models.Model):
-    """One teaching assignment: this teacher teaches this subject in this classroom.
-
-    The pair lives on the assignment, not on the teacher, because the same
-    teacher can teach different subjects in different classrooms.
-    """
 
     classroom = models.ForeignKey(
         Classroom, on_delete=models.CASCADE, related_name="teaching_assignments"
@@ -63,9 +58,6 @@ class Attendance(models.Model):
     )
     student = models.ForeignKey(Student, on_delete=models.CASCADE)
     subject = models.ForeignKey(Subject, on_delete=models.CASCADE)
-    # Which classroom the lesson belongs to. Null for records marked before
-    # classroom-scoped teaching existed, so old attendance is never lost and
-    # deleting a classroom never deletes attendance.
     classroom = models.ForeignKey(
         Classroom,
         on_delete=models.SET_NULL,

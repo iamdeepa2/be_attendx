@@ -5,10 +5,6 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 
 def read_env_file():
-    """Load KEY=VALUE lines from a local .env so no secret is committed.
-
-    Real environment variables always win, which is what hosting uses.
-    """
     env_file = BASE_DIR / ".env"
     if not env_file.exists():
         return

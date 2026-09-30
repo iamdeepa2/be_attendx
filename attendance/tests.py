@@ -14,7 +14,6 @@ from .models import (
 
 
 class ClassroomEditTests(TestCase):
-    """Covers Edit (update in place) vs Remove (drop assignment only)."""
 
     def setUp(self):
         self.student = Student.objects.create(
@@ -52,8 +51,6 @@ class ClassroomEditTests(TestCase):
     def classroom_payload(self):
         return json.loads(self.client.get(f"/classrooms/{self.classroom.id}/").content)
 
-    # Student ---------------------------------------------------------
-
     def test_edit_student_updates_record_without_creating_duplicate(self):
         response = self.put(
             "/students/",
@@ -72,18 +69,15 @@ class ClassroomEditTests(TestCase):
         self.assertEqual(self.student.email, "deepa.new@gmail.com")
         self.assertEqual(self.student.phone, "98XXXXXXXX")
 
-        # Membership, counts and the refreshed page show the new values.
         payload = self.classroom_payload()
         self.assertEqual(payload["student_count"], 1)
         self.assertEqual(payload["students"][0]["name"], "Deepa S. Pandey")
         self.assertEqual(payload["students"][0]["phone"], "98XXXXXXXX")
 
-        # The same shared record is updated everywhere it is listed.
         listed = json.loads(self.client.get("/students/").content)
         self.assertEqual(len(listed), 1)
         self.assertEqual(listed[0]["email"], "deepa.new@gmail.com")
 
-        # Attendance history is untouched.
         self.attendance.refresh_from_db()
         self.assertEqual(Attendance.objects.count(), 1)
         self.assertEqual(self.attendance.student_id, self.student.id)
@@ -115,8 +109,6 @@ class ClassroomEditTests(TestCase):
 
     def test_edit_student_duplicate_email_is_rejected(self):
         Student.objects.create(name="Other", email="other@gmail.com", password="password123")
-        # The view catches the IntegrityError, so the savepoint keeps the test
-        # transaction usable for the assertions below.
         with transaction.atomic():
             response = self.put(
                 "/students/",
@@ -139,11 +131,8 @@ class ClassroomEditTests(TestCase):
             self.classroom.students.filter(id=self.student.id).exists()
         )
         self.assertEqual(self.classroom_payload()["student_count"], 0)
-        # The record keeps its own details after being unassigned.
         self.student.refresh_from_db()
         self.assertEqual(self.student.name, "Deepa Pandey")
-
-    # Teacher ---------------------------------------------------------
 
     def test_edit_teacher_updates_record_without_creating_duplicate(self):
         response = self.put(
@@ -187,8 +176,6 @@ class ClassroomEditTests(TestCase):
         )
         self.assertEqual(self.classroom_payload()["teacher_count"], 0)
 
-    # Subject ---------------------------------------------------------
-
     def test_edit_subject_updates_record_without_creating_duplicate(self):
         response = self.put(
             "/subjects/", {"id": self.subject.id, "name": "Operating Systems"}
@@ -222,7 +209,6 @@ class ClassroomEditTests(TestCase):
         self.subject.refresh_from_db()
         self.assertEqual(self.subject.name, "Operating System")
 
-        # Keeping its own name is not a duplicate.
         same = self.put(
             "/subjects/", {"id": self.subject.id, "name": "Operating System"}
         )
@@ -240,8 +226,6 @@ class ClassroomEditTests(TestCase):
         )
         self.assertEqual(self.classroom_payload()["subject_count"], 0)
 
-    # Edit then Remove stay independent -------------------------------
-
     def test_edit_then_remove_keeps_the_edited_record(self):
         self.put(
             "/teachers/",
@@ -257,7 +241,6 @@ class ClassroomEditTests(TestCase):
         self.assertEqual(teacher.phone, "9123456780")
         self.assertEqual(teacher.classrooms.count(), 0)
 
-        # Re-assigning brings back the same record with the edited details.
         self.post(
             f"/classrooms/{self.classroom.id}/teachers/", {"teacher_id": teacher.id}
         )
@@ -266,7 +249,6 @@ class ClassroomEditTests(TestCase):
 
 
 class ClassroomTeachingTests(TestCase):
-    """One teacher record, different subjects per classroom, no leakage."""
 
     def setUp(self):
         self.bca2 = Classroom.objects.create(name="BCA 2nd Sem")
@@ -315,7 +297,6 @@ class ClassroomTeachingTests(TestCase):
         return json.loads(response.content)
 
     def set_up_bishnu(self):
-        """The reported case: Bishnu teaches Web Tech in BCA 2 and Scripting in BCA 4."""
         bishnu = self.create_teacher(
             "Bishnu Prasadh Chaudhary", "bishnu@gmail.com"
         )
@@ -331,7 +312,6 @@ class ClassroomTeachingTests(TestCase):
     def test_same_teacher_teaches_different_subjects_per_classroom(self):
         bishnu = self.set_up_bishnu()
 
-        # One account, present in both classrooms.
         self.assertEqual(Teacher.objects.count(), 1)
         self.assertEqual(
             sorted(Teacher.objects.get(id=bishnu).classrooms.values_list(
@@ -340,7 +320,6 @@ class ClassroomTeachingTests(TestCase):
             ["BCA 2nd Sem", "BCA 4th Sem"],
         )
 
-        # Each classroom exposes only its own subject for him.
         self.assertEqual(
             [s["name"] for s in self.teaching(self.bca2, bishnu)["subjects"]],
             ["Web Technology"],
@@ -350,7 +329,6 @@ class ClassroomTeachingTests(TestCase):
             ["Scripting Language"],
         )
 
-        # The other classroom's subject is not even offered in BCA 2.
         offered = [s["name"] for s in self.teaching(self.bca2, bishnu)["available_subjects"]]
         self.assertEqual(offered, [])
 
@@ -388,7 +366,6 @@ class ClassroomTeachingTests(TestCase):
     def test_subject_must_belong_to_the_classroom(self):
         bishnu = self.set_up_bishnu()
 
-        # Operating System is not a BCA 2 subject, so it cannot be assigned.
         refused = self.post(
             self.teaching_path(self.bca2, bishnu), {"subject_id": self.os.id}
         )
@@ -423,7 +400,6 @@ class ClassroomTeachingTests(TestCase):
         )
         self.assertEqual(removed.status_code, 200)
 
-        # BCA 2 loses the subject, BCA 4 keeps its own, records survive.
         self.assertEqual(
             [s["name"] for s in self.teaching(self.bca2, bishnu)["subjects"]], []
         )
@@ -499,7 +475,6 @@ class ClassroomTeachingTests(TestCase):
         )
         self.assertEqual(Teacher.objects.count(), 1)
 
-        # The single account still logs in and still holds both assignments.
         login = self.post("/login/", {
             "email": "bishnu@gmail.com",
             "password": "teacher@248",
@@ -511,18 +486,10 @@ class ClassroomTeachingTests(TestCase):
 
 
 class StudentDashboardScopeTests(TestCase):
-    """A student only ever sees their own classroom's teachers and subjects.
-
-    Mirrors the reported case: the same teacher holds different subjects in
-    different classrooms, and a student must not see the other semesters.
-    """
 
     def setUp(self):
-        # BCA 2nd Sem
         self.bca2 = Classroom.objects.create(name="BCA 2nd Sem")
-        # BCA 4th Sem
         self.bca4 = Classroom.objects.create(name="BCA 4th Sem")
-        # BCA 3rd Sem, used to prove the logic is not tied to a fixed pair.
         self.bca3 = Classroom.objects.create(name="BCA 3rd Sem")
 
         self.web = Subject.objects.create(name="Web Technology")
@@ -549,7 +516,6 @@ class StudentDashboardScopeTests(TestCase):
             phone="9812345678", password="teacher@248",
         )
 
-        # Bishnu: Web Technology in BCA 2, Scripting Language in BCA 4.
         for classroom, subject in ((self.bca2, self.web), (self.bca4, self.scripting)):
             classroom.teachers.add(self.bishnu)
             classroom.subjects.add(subject)
@@ -557,7 +523,6 @@ class StudentDashboardScopeTests(TestCase):
                 classroom=classroom, teacher=self.bishnu, subject=subject
             )
 
-        # BCA 4th Sem only.
         self.bca4.teachers.add(self.rahul, self.sujan)
         self.bca4.subjects.add(self.os, self.dbms, self.numerical)
         TeachingAssignment.objects.create(
@@ -567,7 +532,6 @@ class StudentDashboardScopeTests(TestCase):
             classroom=self.bca4, teacher=self.sujan, subject=self.dbms
         )
 
-        # BCA 3rd Sem only.
         self.bca3.teachers.add(self.dipa)
         self.bca3.subjects.add(self.dsa)
         TeachingAssignment.objects.create(
@@ -586,8 +550,6 @@ class StudentDashboardScopeTests(TestCase):
         self.bca2.students.add(self.rachana)
         self.bca4.students.add(self.deepa)
 
-        # Attendance for both students across every classroom, plus a legacy
-        # row with no classroom, to prove nothing leaks either way.
         self.rows = {}
         for student, classroom, subject, present in (
             (self.rachana, self.bca2, self.web, True),
@@ -626,7 +588,6 @@ class StudentDashboardScopeTests(TestCase):
         )
         self.assertEqual(self.subject_names(payload), ["Web Technology"])
 
-        # Teachers who belong only to another classroom never appear.
         self.assertNotIn("Rahul Shakya", self.teacher_names(payload))
         self.assertNotIn("Sujan Dhakal", self.teacher_names(payload))
         self.assertNotIn("Dipa Gurung", self.teacher_names(payload))
@@ -640,8 +601,6 @@ class StudentDashboardScopeTests(TestCase):
 
         self.assertEqual(bishnu["name"], "Bishnu Prasadh Chaudhary")
         self.assertEqual([s["name"] for s in bishnu["subjects"]], ["Web Technology"])
-        # Scripting Language is his BCA 4th Sem assignment, so it must not
-        # reach a BCA 2nd Sem student.
         self.assertNotIn(
             "Scripting Language", [s["name"] for s in bishnu["subjects"]]
         )
@@ -658,7 +617,6 @@ class StudentDashboardScopeTests(TestCase):
             self.subject_names(payload),
             ["DBMS", "Numerical Method", "Operating System", "Scripting Language"],
         )
-        # Bishnu's BCA 2nd Sem subject does not leak into BCA 4th Sem.
         bishnu = next(
             t for t in payload["teachers"] if t["name"] == "Bishnu Prasadh Chaudhary"
         )
@@ -673,7 +631,6 @@ class StudentDashboardScopeTests(TestCase):
         self.assertTrue(all(r["student_id"] == self.rachana.id for r in rachana["records"]))
         self.assertEqual({r["subject_name"] for r in rachana["records"]}, {"Web Technology"})
 
-        # Deepa's own classroom rows plus the legacy row for her own subject.
         deepa = self.dashboard(self.deepa)
         deepa_ids = [r["id"] for r in deepa["records"]]
         self.assertIn(self.rows[self.deepa.id][0].id, deepa_ids)
@@ -690,7 +647,6 @@ class StudentDashboardScopeTests(TestCase):
         self.assertTrue(all(r["classroom_id"] == self.bca2.id for r in rows))
 
     def test_teacher_and_admin_reads_keep_their_explicit_scope(self):
-        # An explicit classroom filter is still honoured as asked.
         explicit = json.loads(
             self.client.get(
                 f"/attendance/?student_id={self.rachana.id}&classroom_id={self.bca4.id}"
@@ -698,7 +654,6 @@ class StudentDashboardScopeTests(TestCase):
         )
         self.assertEqual([r["id"] for r in explicit], [self.rows[self.rachana.id][1].id])
 
-        # Teacher reads require both a valid teaching assignment and enrollment.
         by_teacher = json.loads(
             self.client.get(f"/attendance/?teacher_id={self.bishnu.id}").content
         )
@@ -717,7 +672,6 @@ class StudentDashboardScopeTests(TestCase):
         self.assertEqual(Subject.objects.count(), 6)
 
     def test_student_enrolled_later_automatically_gets_that_classroom(self):
-        # Asha has no classroom yet: nothing is invented for her.
         payload = self.dashboard(self.asha)
         self.assertIsNone(payload["classroom"])
         self.assertEqual(payload["classrooms"], [])
@@ -725,7 +679,6 @@ class StudentDashboardScopeTests(TestCase):
         self.assertEqual(payload["subjects"], [])
         self.assertEqual(payload["records"], [])
 
-        # Enrolling her changes the answer with no code change.
         self.bca3.students.add(self.asha)
         payload = self.dashboard(self.asha)
         self.assertEqual(payload["classroom"]["name"], "BCA 3rd Sem")

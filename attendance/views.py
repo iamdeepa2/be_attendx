@@ -1,15 +1,3 @@
-"""JSON API for the attendance app.
-
-The frontend is a small SPA, so every endpoint here is a plain function view
-that answers with JSON. Two ideas keep the file short:
-
-* every response is built by ``ok`` / ``fail``, so the frontend can always read
-  a single ``message`` field;
-* students, teachers, subjects and classrooms only differ by a handful of
-  details, so they share one CRUD handler described by the four short view
-  functions in the "Simple records" section.
-"""
-
 import json
 
 from django.core.exceptions import ObjectDoesNotExist
@@ -30,8 +18,6 @@ from .models import (
 )
 
 
-# Responses -------------------------------------------------------------------
-
 def ok(message="", **extra):
     return JsonResponse({"success": True, "message": message, **extra})
 
@@ -47,8 +33,6 @@ def not_found(message):
 def method_not_allowed():
     return fail("Method not allowed.", 405)
 
-
-# Reading the request --------------------------------------------------------
 
 def read_body(request):
     try:
@@ -73,8 +57,6 @@ def get_or_none(model, pk):
     except (ObjectDoesNotExist, TypeError, ValueError):
         return None
 
-
-# Serializing ----------------------------------------------------------------
 
 def person_row(person):
     return {
@@ -103,8 +85,6 @@ def attendance_row(record):
         "present": record.present,
     }
 
-
-# Login ----------------------------------------------------------------------
 
 LOGIN_MODELS = {
     "student": Student,
@@ -145,16 +125,9 @@ def student_register(request):
     return ok()
 
 
-# The shared CRUD handler ----------------------------------------------------
-#
-# `contact` marks the records that carry an email, a phone and a password;
-# `unique_name` marks the records whose name has to stay unique; the rest of
-# the behaviour is identical for all four.
-
 def crud(request, model, *, label, name_label, contact=False,
          unique_name=False, classroom_field=None, order_by=None,
          list_rows=None, on_duplicate=None):
-    """List, create, update and delete one kind of simple record."""
 
     if request.method == "GET":
         rows = model.objects.all()
@@ -202,7 +175,6 @@ def create_record(model, data, label, name_label, *, contact, unique_name,
     if contact and not email:
         return fail("Enter an email.")
 
-    # A duplicate that is worth pointing at, rather than a plain rejection.
     if on_duplicate:
         reply = on_duplicate(model, email)
         if reply is not None:
@@ -223,7 +195,6 @@ def create_record(model, data, label, name_label, *, contact, unique_name,
     except IntegrityError:
         return fail(f"A {label.lower()} with this email already exists.")
 
-    # The record is created first, so an unusable classroom id never drops it.
     classroom, warning = add_to_classroom(obj, classroom_field, data.get("classroom_id"))
     if warning:
         return ok(warning, id=obj.id)
@@ -250,7 +221,6 @@ def update_record(model, data, label, name_label, *, contact, unique_name):
             return fail("Enter an email.")
         obj.email = email
         obj.phone = data.get("phone", obj.phone)
-        # A blank password field means "keep the current one".
         if data.get("password"):
             obj.password = data["password"]
 
@@ -263,11 +233,6 @@ def update_record(model, data, label, name_label, *, contact, unique_name):
 
 
 def add_to_classroom(obj, field, classroom_id):
-    """Attach a freshly created record to a classroom.
-
-    Returns (classroom, warning); the record is always created first, so an
-    unusable classroom id never silently drops it.
-    """
     if not field or classroom_id in (None, ""):
         return None, ""
     classroom = get_or_none(Classroom, classroom_id)
@@ -278,9 +243,6 @@ def add_to_classroom(obj, field, classroom_id):
 
 
 def existing_teacher_reply(model, email):
-    """The email identifies one teacher account, so an existing teacher is
-    reported with the id to assign instead of a second account for the same
-    person."""
     existing = model.objects.filter(email__iexact=email).first()
     if existing is None:
         return None
@@ -308,8 +270,6 @@ def classroom_rows(classrooms):
         ).order_by("id")
     ]
 
-
-# Simple records -------------------------------------------------------------
 
 @csrf_exempt
 def students(request):
@@ -348,14 +308,7 @@ def classrooms(request):
     )
 
 
-# Classrooms -----------------------------------------------------------------
-
 def teaching_for(classroom, teacher, classroom_subjects):
-    """(assigned, available) subject rows for one teacher in one classroom.
-
-    Only this classroom's subjects are considered, so a subject the same
-    teacher teaches in another classroom never leaks in here.
-    """
     assigned_ids = set(
         TeachingAssignment.objects.filter(
             classroom=classroom, teacher=teacher
@@ -380,8 +333,6 @@ def classroom_detail(request, classroom_id):
     subjects = classroom.subjects.all().order_by("name")
     subject_rows = [name_row(s) for s in subjects]
 
-    # Each teacher only carries the subjects they teach *here*: the same
-    # teacher can teach other subjects in other classrooms.
     teacher_rows = []
     for teacher in teachers:
         assigned, available = teaching_for(classroom, teacher, subject_rows)
@@ -406,7 +357,6 @@ def classroom_detail(request, classroom_id):
 
 
 def available_people(model, assigned):
-    """Everyone of this kind who is *not* already in the classroom."""
     return [
         {"id": o.id, "name": o.name, "email": o.email}
         for o in model.objects.exclude(
@@ -416,7 +366,6 @@ def available_people(model, assigned):
 
 
 def available_names(model, assigned):
-    """The same list for records that only have a name."""
     return [
         name_row(o)
         for o in model.objects.exclude(
@@ -426,12 +375,6 @@ def available_names(model, assigned):
 
 
 def membership(request, classroom_id, model, field, id_key, label):
-    """Shared GET/POST/DELETE handler for a classroom membership list.
-
-    GET    -> records currently assigned to the classroom
-    POST   -> assign an existing record (never creates a new one)
-    DELETE -> remove only the assignment; the record itself is kept
-    """
     classroom = get_or_none(Classroom, classroom_id)
     if classroom is None:
         return not_found("Classroom not found.")
@@ -498,16 +441,6 @@ def classroom_subjects(request, classroom_id):
 
 @csrf_exempt
 def classroom_teacher_subjects(request, classroom_id, teacher_id):
-    """GET/POST/DELETE for one teacher's teaching inside one classroom.
-
-    The classroom, the teacher and the subject together are the assignment, so
-    the same teacher can hold different subjects in different classrooms.
-
-    GET    -> the subjects this teacher teaches in this classroom, plus the
-             classroom subjects not yet assigned to them
-    POST   -> assign a subject of this classroom to this teacher
-    DELETE -> drop that one assignment; teacher, subject and attendance stay
-    """
     classroom = get_or_none(Classroom, classroom_id)
     if classroom is None:
         return not_found("Classroom not found.")
@@ -555,8 +488,6 @@ def classroom_teacher_subjects(request, classroom_id, teacher_id):
 
 
 def assign_subject(classroom, teacher, subject):
-    """Both ends have to be in the classroom, otherwise the assignment would
-    not describe what is actually taught here."""
     if not classroom.subjects.filter(id=subject.id).exists():
         return fail(f"Add {subject.name} to {classroom.name} before assigning it.")
     if not classroom.teachers.filter(id=teacher.id).exists():
@@ -571,7 +502,6 @@ def assign_subject(classroom, teacher, subject):
 
 
 def active_teaching(teacher_id):
-    """Assignments are valid only while both memberships still exist."""
     return TeachingAssignment.objects.filter(
         teacher_id=teacher_id,
         classroom__teachers__id=teacher_id,
@@ -613,28 +543,11 @@ def teacher_classroom(request, teacher_id, classroom_id):
     )
 
 
-# Students -------------------------------------------------------------------
-
 def student_classrooms(student):
-    """The classroom(s) a student is enrolled in.
-
-    This is the single place the logged-in student's classroom is resolved,
-    so every student facing read is scoped the same way.
-    """
     return list(student.classrooms.all().order_by("name"))
 
 
 def classroom_scoped_attendance(student, classrooms):
-    """Attendance a student is allowed to see.
-
-    A student only ever sees their own rows, and only the ones belonging to
-    their own classroom. Rows recorded for a classroom the student is not
-    enrolled in are dropped, so no other semester leaks into the dashboard.
-
-    Rows written before the classroom column existed carry no classroom, so
-    they are kept only when the subject itself belongs to one of the
-    student's classrooms. Everything else stays out.
-    """
     if student is None or not classrooms:
         return Attendance.objects.none()
 
@@ -651,13 +564,6 @@ def classroom_scoped_attendance(student, classrooms):
 
 @csrf_exempt
 def student_dashboard(request, student_id):
-    """Dashboard payload for one student, scoped to that student's classroom.
-
-    The classroom is resolved from the student record, never from the request
-    and never from a classroom name. Everything returned below it is read
-    through that classroom, so a teacher or subject belonging only to another
-    semester can never appear here.
-    """
     if request.method != "GET":
         return method_not_allowed()
 
@@ -667,8 +573,6 @@ def student_dashboard(request, student_id):
 
     classrooms = student_classrooms(student)
 
-    # Teaching is classroom specific, so the same teacher keeps a different
-    # subject list in each classroom.
     subjects_by_teacher = {}
     assignments = TeachingAssignment.objects.filter(
         classroom__in=classrooms
@@ -678,7 +582,6 @@ def student_dashboard(request, student_id):
             {"id": a.subject_id, "name": a.subject.name}
         )
 
-    # A teacher or subject in two of the student's classrooms is listed once.
     teachers, teacher_ids = [], set()
     subjects, subject_ids = [], set()
     for classroom in classrooms:
@@ -696,7 +599,6 @@ def student_dashboard(request, student_id):
     return ok(
         student=person_row(student),
         classrooms=[name_row(c) for c in classrooms],
-        # A single classroom can be named outright; several cannot.
         classroom=name_row(classrooms[0]) if len(classrooms) == 1 else None,
         teachers=[
             {**person_row(t), "subjects": subjects_by_teacher.get(t.id, [])}
@@ -706,8 +608,6 @@ def student_dashboard(request, student_id):
         records=[attendance_row(a) for a in records],
     )
 
-
-# Attendance -----------------------------------------------------------------
 
 @csrf_exempt
 def records(request):
@@ -751,9 +651,6 @@ def records(request):
     classroom = request.GET.get("classroom_id")
 
     if student and not classroom:
-        # A student scoped read is locked to that student's own classrooms.
-        # The classroom comes from the student record, so another semester's
-        # rows are dropped by the query rather than filtered out downstream.
         student_row = get_or_none(Student, student)
         rows = classroom_scoped_attendance(
             student_row, student_classrooms(student_row) if student_row else []

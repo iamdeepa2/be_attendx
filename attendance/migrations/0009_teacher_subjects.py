@@ -1,10 +1,3 @@
-# One teacher can teach many subjects. This only adds the join table, so no
-# existing teacher, subject, classroom, login or attendance row is touched.
-#
-# The data step backfills teacher/subject pairs that attendance already
-# implies, so teachers who were marking attendance keep the subjects they were
-# actually teaching. It only inserts missing links and never removes any.
-
 from django.db import migrations, models
 
 

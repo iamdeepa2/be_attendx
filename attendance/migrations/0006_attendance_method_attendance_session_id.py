@@ -1,10 +1,3 @@
-# The columns `method` and `session_id` already exist on the
-# attendance_attendance table (added outside Django's migration history),
-# so this migration only syncs Django's model state with the real schema.
-# No DDL is run and no existing rows are touched.
-# `method` is given the same "manual" default the existing rows already use,
-# which satisfies its NOT NULL constraint on insert.
-
 from django.db import migrations, models
 
 
