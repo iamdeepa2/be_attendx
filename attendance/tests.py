@@ -4,6 +4,7 @@ from django.db import transaction
 from django.test import TestCase
 
 from .models import (
+    Admin,
     Student,
     Teacher,
     Subject,
@@ -11,6 +12,66 @@ from .models import (
     Attendance,
     TeachingAssignment,
 )
+
+
+class AdminOnlyLoginTests(TestCase):
+
+    def setUp(self):
+        self.admin = Admin.objects.create(
+            name="Site Admin", email="admin@gmail.com", password="admin@248",
+        )
+        self.student = Student.objects.create(
+            name="Deepa Pandey", email="deepa@gmail.com", phone="9800000001",
+            password="student@248",
+        )
+        self.teacher = Teacher.objects.create(
+            name="Rahul Shakya", email="rahul@gmail.com", phone="9851042262",
+            password="teacher@248",
+        )
+
+    def post(self, path, body):
+        return self.client.post(path, json.dumps(body), content_type="application/json")
+
+    def post_login(self, email, password, user_type):
+        return self.post("/login/", {
+            "email": email,
+            "password": password,
+            "user_type": user_type,
+        })
+
+    def test_admin_can_sign_in(self):
+        response = self.post_login("admin@gmail.com", "admin@248", "admin")
+        self.assertEqual(response.status_code, 200)
+        body = json.loads(response.content)
+        self.assertTrue(body["success"])
+        self.assertEqual(body["user_id"], self.admin.id)
+        self.assertEqual(body["name"], self.admin.name)
+        self.assertEqual(body["user_type"], "admin")
+
+    def test_admin_login_rejects_a_wrong_password(self):
+        response = self.post_login("admin@gmail.com", "nope", "admin")
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(json.loads(response.content)["success"])
+
+    def test_teacher_cannot_sign_in_even_with_valid_credentials(self):
+        response = self.post_login("rahul@gmail.com", "teacher@248", "teacher")
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(json.loads(response.content)["success"])
+
+    def test_student_cannot_sign_in_even_with_valid_credentials(self):
+        response = self.post_login("deepa@gmail.com", "student@248", "student")
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(json.loads(response.content)["success"])
+
+    def test_unknown_role_is_rejected(self):
+        for user_type in (None, "", "root", "Admin"):
+            response = self.post("/login/", {
+                "email": "admin@gmail.com",
+                "password": "admin@248",
+                "user_type": user_type,
+            })
+            self.assertEqual(response.status_code, 403, user_type)
+            self.assertFalse(json.loads(response.content)["success"], user_type)
 
 
 class ClassroomEditTests(TestCase):
@@ -475,13 +536,13 @@ class ClassroomTeachingTests(TestCase):
         )
         self.assertEqual(Teacher.objects.count(), 1)
 
-        login = self.post("/login/", {
+        teacher_login = self.post("/login/", {
             "email": "bishnu@gmail.com",
             "password": "teacher@248",
             "user_type": "teacher",
         })
-        self.assertEqual(login.status_code, 200)
-        self.assertEqual(json.loads(login.content)["user_id"], bishnu)
+        self.assertEqual(teacher_login.status_code, 403)
+        self.assertFalse(json.loads(teacher_login.content)["success"])
         self.assertEqual(TeachingAssignment.objects.count(), 2)
 
 

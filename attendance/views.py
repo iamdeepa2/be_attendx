@@ -86,13 +86,6 @@ def attendance_row(record):
     }
 
 
-LOGIN_MODELS = {
-    "student": Student,
-    "teacher": Teacher,
-    "admin": Admin,
-}
-
-
 @csrf_exempt
 def login(request):
     if request.method != "POST":
@@ -100,8 +93,10 @@ def login(request):
 
     data = read_body(request)
     user_type = data.get("user_type")
-    model = LOGIN_MODELS.get(user_type, Admin)
-    user = model.objects.filter(
+    if user_type != "admin":
+        return fail("Only admin accounts can sign in.", 403)
+
+    user = Admin.objects.filter(
         email=data.get("email"), password=data.get("password")
     ).first()
 
